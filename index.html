@@ -10,15 +10,27 @@
 
 <style>
 body { margin:0; font-family: Arial; }
-#map { height:70vh; }
+#map { height:65vh; }
 #panel {
-  height:30vh;
+  height:35vh;
   padding:10px;
   background:#f2f2f2;
   overflow:auto;
 }
-input { width:120px; }
-button { margin:4px; }
+input { padding:4px; }
+button { margin:4px; padding:4px 8px; }
+.result-item {
+  padding:5px;
+  cursor:pointer;
+  border-bottom:1px solid #ccc;
+}
+.result-item:hover { background:#ddd; }
+.address-label {
+  font-size:12px;
+  background:white;
+  padding:4px;
+  border:1px solid black;
+}
 </style>
 </head>
 <body>
@@ -27,18 +39,21 @@ button { margin:4px; }
 
 <div id="panel">
 
-<h3>Azimut Pro Tool</h3>
+<h3>Ricerca località</h3>
+
+<input type="text" id="searchInput" placeholder="Es. Vicenza, Via Roma 10 Milano">
+<select id="pointSelector">
+  <option value="1">Imposta come Punto 1</option>
+  <option value="2">Imposta come Punto 2</option>
+</select>
+<button onclick="goToMyLocation()">Vai alla mia posizione</button>
+
+<div id="searchResults"></div>
+
+<hr>
 
 Declinazione magnetica (°):
 <input type="number" id="decl" value="0" step="0.1">
-
-<br><br>
-
-Lat1 <input id="lat1">
-Lon1 <input id="lon1">
-Lat2 <input id="lat2">
-Lon2 <input id="lon2">
-<button onclick="setManualPoints()">Imposta manualmente</button>
 
 <br><br>
 
@@ -59,55 +74,148 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
  attribution: '&copy; OpenStreetMap contributors'
 }).addTo(map);
 
-let markers = [];
+let markers = [null, null];
+let addresses = ["",""];
 let line;
 let angleMarker;
 
-map.on('click', function(e){
- if(markers.length===2) resetAll();
- addPoint(e.latlng.lat, e.latlng.lng);
+/* =============================
+   AUTOCOMPLETE NOMINATIM
+============================= */
+
+let timeout = null;
+
+document.getElementById("searchInput").addEventListener("input", function() {
+
+  clearTimeout(timeout);
+  let query = this.value;
+
+  if(query.length < 3) {
+    document.getElementById("searchResults").innerHTML="";
+    return;
+  }
+
+  timeout = setTimeout(()=> searchLocation(query), 500);
 });
 
-function addPoint(lat,lng){
- let marker = L.marker([lat,lng]).addTo(map);
- markers.push(marker);
- if(markers.length===2){
-   drawLine();
-   calculateAll();
- }
+async function searchLocation(query){
+
+  let url = "https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&q="
+            + encodeURIComponent(query);
+
+  let response = await fetch(url);
+  let data = await response.json();
+
+  let resultsDiv = document.getElementById("searchResults");
+  resultsDiv.innerHTML="";
+
+  data.slice(0,5).forEach(place=>{
+    let div=document.createElement("div");
+    div.className="result-item";
+    div.innerText=place.display_name;
+    div.onclick=()=>selectLocation(place);
+    resultsDiv.appendChild(div);
+  });
 }
 
-function drawLine(){
- line = L.polyline([
-   markers[0].getLatLng(),
-   markers[1].getLatLng()
- ],{color:'red'}).addTo(map);
+function selectLocation(place){
+
+  let lat=parseFloat(place.lat);
+  let lon=parseFloat(place.lon);
+  let pointIndex=parseInt(document.getElementById("pointSelector").value)-1;
+
+  setPoint(pointIndex, lat, lon, place.display_name);
+
+  map.setView([lat,lon],15);
+
+  document.getElementById("searchResults").innerHTML="";
 }
+
+/* =============================
+   GEOLOCALIZZAZIONE
+============================= */
+
+function goToMyLocation(){
+
+  if(!navigator.geolocation){
+    alert("Geolocalizzazione non supportata");
+    return;
+  }
+
+  navigator.geolocation.getCurrentPosition(position=>{
+    let lat=position.coords.latitude;
+    let lon=position.coords.longitude;
+
+    let pointIndex=parseInt(document.getElementById("pointSelector").value)-1;
+
+    setPoint(pointIndex, lat, lon, "Posizione GPS");
+
+    map.setView([lat,lon],15);
+
+  });
+}
+
+/* =============================
+   GESTIONE PUNTI
+============================= */
+
+function setPoint(index, lat, lon, address){
+
+  if(markers[index]){
+    map.removeLayer(markers[index]);
+  }
+
+  markers[index]=L.marker([lat,lon]).addTo(map);
+  addresses[index]=address;
+
+  markers[index].bindPopup(address).openPopup();
+
+  updateLineAndCalculate();
+}
+
+function updateLineAndCalculate(){
+
+  if(line){
+    map.removeLayer(line);
+    line=null;
+  }
+
+  if(markers[0] && markers[1]){
+
+    line=L.polyline([
+      markers[0].getLatLng(),
+      markers[1].getLatLng()
+    ],{color:'red'}).addTo(map);
+
+    calculateAll();
+  }
+}
+
+/* =============================
+   CALCOLI
+============================= */
 
 function calculateAll(){
 
- let lat1 = markers[0].getLatLng().lat;
- let lon1 = markers[0].getLatLng().lng;
- let lat2 = markers[1].getLatLng().lat;
- let lon2 = markers[1].getLatLng().lng;
+  let lat1=markers[0].getLatLng().lat;
+  let lon1=markers[0].getLatLng().lng;
+  let lat2=markers[1].getLatLng().lat;
+  let lon2=markers[1].getLatLng().lng;
 
- document.getElementById("lat1").value=lat1;
- document.getElementById("lon1").value=lon1;
- document.getElementById("lat2").value=lat2;
- document.getElementById("lon2").value=lon2;
+  let az=calculateAzimuth(lat1,lon1,lat2,lon2);
+  let dist=haversine(lat1,lon1,lat2,lon2);
 
- let az = calculateAzimuth(lat1,lon1,lat2,lon2);
- let dist = haversine(lat1,lon1,lat2,lon2);
+  let decl=parseFloat(document.getElementById("decl").value);
+  let azMag=(az-decl+360)%360;
 
- let decl = parseFloat(document.getElementById("decl").value);
- let azMag = (az - decl + 360)%360;
+  showAngleOnMap(az);
 
- showAngleOnMap(az);
-
- document.getElementById("results").innerHTML=
-   "<b>Azimut geografico:</b> "+az.toFixed(2)+"°<br>"+
-   "<b>Azimut magnetico:</b> "+azMag.toFixed(2)+"°<br>"+
-   "<b>Distanza:</b> "+dist.toFixed(2)+" m";
+  document.getElementById("results").innerHTML=
+    "<b>Punto 1:</b> "+addresses[0]+"<br>"+
+    "<b>Punto 2:</b> "+addresses[1]+"<br><br>"+
+    "<b>Azimut geografico:</b> "+az.toFixed(2)+"°<br>"+
+    "<b>Azimut magnetico:</b> "+azMag.toFixed(2)+"°<br>"+
+    "<b>Distanza:</b> "+dist.toFixed(2)+" m";
 }
 
 function calculateAzimuth(lat1,lon1,lat2,lon2){
@@ -140,29 +248,37 @@ function haversine(lat1,lon1,lat2,lon2){
 }
 
 function showAngleOnMap(az){
+
  if(angleMarker) map.removeLayer(angleMarker);
 
  let p=markers[0].getLatLng();
+
  angleMarker=L.marker(p,{
    icon:L.divIcon({
      className:'angle-label',
-     html:'<div style="background:white;padding:4px;border:1px solid black;">'+az.toFixed(1)+'°</div>'
+     html:'<div class="address-label">'+az.toFixed(1)+'°</div>'
    })
  }).addTo(map);
 }
 
-function setManualPoints(){
- resetAll();
- let lat1=parseFloat(lat1.value);
- let lon1=parseFloat(lon1.value);
- let lat2=parseFloat(lat2.value);
- let lon2=parseFloat(lon2.value);
- addPoint(lat1,lon1);
- addPoint(lat2,lon2);
+function resetAll(){
+
+ if(line) map.removeLayer(line);
+ if(angleMarker) map.removeLayer(angleMarker);
+
+ markers.forEach(m=>{
+   if(m) map.removeLayer(m);
+ });
+
+ markers=[null,null];
+ addresses=["",""];
+ document.getElementById("results").innerHTML="";
 }
 
 function exportCSV(){
- if(markers.length<2) return;
+
+ if(!markers[0] || !markers[1]) return;
+
  let lat1=markers[0].getLatLng().lat;
  let lon1=markers[0].getLatLng().lng;
  let lat2=markers[1].getLatLng().lat;
@@ -171,7 +287,8 @@ function exportCSV(){
  let az=calculateAzimuth(lat1,lon1,lat2,lon2);
  let dist=haversine(lat1,lon1,lat2,lon2);
 
- let csv="Lat1,Lon1,Lat2,Lon2,Azimut,Distanza_m\n"+
+ let csv="Punto1,Punto2,Lat1,Lon1,Lat2,Lon2,Azimut,Distanza_m\n"+
+         addresses[0]+","+addresses[1]+","+
          lat1+","+lon1+","+lat2+","+lon2+","+az+","+dist;
 
  let blob=new Blob([csv],{type:"text/csv"});
@@ -180,14 +297,6 @@ function exportCSV(){
  a.href=url;
  a.download="azimut_data.csv";
  a.click();
-}
-
-function resetAll(){
- markers.forEach(m=>map.removeLayer(m));
- if(line) map.removeLayer(line);
- if(angleMarker) map.removeLayer(angleMarker);
- markers=[];
- document.getElementById("results").innerHTML="";
 }
 
 function toRad(v){ return v*Math.PI/180; }
