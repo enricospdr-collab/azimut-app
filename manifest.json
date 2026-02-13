@@ -1,0 +1,9 @@
+{
+  "name": "Azimut Pro Tool",
+  "short_name": "Azimut",
+  "start_url": "index.html",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#000000",
+  "icons": []
+}
