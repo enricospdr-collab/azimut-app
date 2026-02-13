@@ -17,6 +17,11 @@ input, select, button { padding:4px; margin:2px; }
 .result-item:hover { background:#ddd; }
 .address-label { font-size:12px; background:white; padding:4px; border:1px solid black; }
 </style>
+
+<!-- Librerie per esportazione PDF -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
 </head>
 <body>
 
@@ -39,11 +44,13 @@ Declinazione magnetica (°):
 <br><br>
 <button onclick="resetAll()">Reset completo</button>
 <button onclick="exportCSV()">Esporta CSV</button>
+<button onclick="exportMapPDF()">Esporta mappa in PDF</button>
 
 <div id="results"></div>
 </div>
 
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
 <script>
 
 let map = L.map('map').setView([45.545, 11.535], 13);
@@ -226,11 +233,48 @@ function exportCSV(){
 }
 
 /* =============================
+   ESPORTA MAPPA IN PDF
+============================= */
+async function exportMapPDF() {
+  const { jsPDF } = window.jspdf;
+
+  // cattura mappa
+  const mapDiv = document.getElementById('map');
+  const canvas = await html2canvas(mapDiv, {useCORS:true});
+  const imgData = canvas.toDataURL('image/png');
+
+  // crea PDF
+  const pdf = new jsPDF({
+    orientation: 'landscape',
+    unit: 'px',
+    format: [canvas.width, canvas.height + 200] // spazio per dati segmenti
+  });
+
+  pdf.addImage(imgData, 'PNG', 0, 0, canvas.width, canvas.height);
+
+  // aggiungi dati segmenti sotto la mappa
+  let yOffset = canvas.height + 10;
+  let decl=parseFloat(document.getElementById("decl").value);
+  for(let i=0;i<markers.length-1;i++){
+    let lat1=markers[i].getLatLng().lat;
+    let lon1=markers[i].getLatLng().lng;
+    let lat2=markers[i+1].getLatLng().lat;
+    let lon2=markers[i+1].getLatLng().lng;
+    let az=calculateAzimuth(lat1,lon1,lat2,lon2);
+    let azMag=(az-decl+360)%360;
+    let dist=haversine(lat1,lon1,lat2,lon2);
+    pdf.text(10, yOffset, `Segmento ${i+1}: ${addresses[i]} → ${addresses[i+1]} | Azimut: ${az.toFixed(2)}° | Azimut mag: ${azMag.toFixed(2)}° | Distanza: ${dist.toFixed(2)} m`);
+    yOffset += 15;
+  }
+
+  pdf.save('mappa_tracciato.pdf');
+}
+
+/* =============================
    SERVICE WORKER
 ============================= */
 if('serviceWorker' in navigator){ navigator.serviceWorker.register('service-worker.js'); }
 
 </script>
-
 </body>
 </html>

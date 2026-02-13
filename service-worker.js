@@ -1,4 +1,4 @@
-const CACHE_NAME = 'azimut-app-v3';
+const CACHE_NAME = 'azimut-app-v4';
 const urlsToCache = ['index.html'];
 
 self.addEventListener('install', (event) => {
