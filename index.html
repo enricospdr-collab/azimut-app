@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html>
+<html lang="it">
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -16,9 +16,14 @@ input, select, button { padding:4px; margin:2px; }
 .result-item { padding:5px; cursor:pointer; border-bottom:1px solid #ccc; }
 .result-item:hover { background:#ddd; }
 .address-label { font-size:12px; background:white; padding:4px; border:1px solid black; }
+
+#elevationInfo {
+  margin-top:6px;
+  font-size:14px;
+}
 </style>
 
-<!-- Librerie per esportazione PDF -->
+<!-- Librerie PDF -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
@@ -27,13 +32,13 @@ input, select, button { padding:4px; margin:2px; }
 
 <!-- MODALE DI BENVENUTO -->
 <div id="welcomeModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; 
-    background: rgba(0,0,0,0.5); z-index:1000; justify-content:center; align-items:center;">
+background: rgba(0,0,0,0.5); z-index:1000; justify-content:center; align-items:center;">
   <div style="background:white; padding:20px; border-radius:8px; max-width:500px; width:90%; position:relative;">
     <span id="closeModal" style="position:absolute; top:10px; right:15px; cursor:pointer; font-weight:bold; font-size:18px;">&times;</span>
     <h2>Benvenuti all'Azimut Multi-Point Tool – Versione di prova</h2>
     <p>Questa applicazione è destinata ad uso <b>ludico e formativo</b> per tutti i partecipanti del <b>Corso CAI Scialpinismo Vicenza 2026</b>.</p>
-    <p>Siete incoraggiati a esplorare le funzionalità e a fornire <b>suggerimenti per miglioramenti futuri</b>.</p>
-    <p><i>Grazie per l’interesse e buon divertimento!</i><br>– <b>Enrico Spadaro</b></p>
+    <p>Siete incoraggiati a esplorare le funzionalità e a fornire <b>suggerimenti</b>.</p>
+    <p><i>Grazie e buon divertimento!</i><br>– <b>Enrico Spadaro</b></p>
   </div>
 </div>
 
@@ -59,252 +64,38 @@ Declinazione magnetica (°):
 <button onclick="exportMapPDF()">Esporta mappa in PDF</button>
 
 <div id="results"></div>
+
+<!-- NUOVA SEZIONE DATI ALTIMETRICI -->
+<div id="elevationInfo">
+  Dislivello positivo: <span id="gain">0</span> m |
+  Dislivello negativo: <span id="loss">0</span> m |
+  Quota minima: <span id="minAlt">0</span> m |
+  Quota massima: <span id="maxAlt">0</span> m
+  <span id="badge-pendenza" style="margin-left:8px;"></span>
+</div>
+
 </div>
 
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
+<!-- TUO SCRIPT PRINCIPALE -->
+<script src="app.js"></script>
+
 <script>
-
-let map = L.map('map').setView([45.545, 11.535], 13);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap contributors' }).addTo(map);
-
-let markers = [];  // fino a 20 punti
-let addresses = [];
-let multiLines = [];
-let angleMarkers = [];
-
-/* =============================
-   MODALE DI BENVENUTO
-============================= */
+/* solo gestione modale */
 window.addEventListener('load', function() {
   const modal = document.getElementById('welcomeModal');
   const closeBtn = document.getElementById('closeModal');
 
   modal.style.display = 'flex';
 
-  closeBtn.addEventListener('click', function() {
-    modal.style.display = 'none';
-  });
+  closeBtn.addEventListener('click', () => modal.style.display='none');
 
-  modal.addEventListener('click', function(e) {
-    if(e.target === modal) modal.style.display = 'none';
+  modal.addEventListener('click', function(e){
+    if(e.target===modal) modal.style.display='none';
   });
 });
-
-/* =============================
-   AUTOCOMPLETE NOMINATIM
-============================= */
-let timeout = null;
-document.getElementById("searchInput").addEventListener("input", function() {
-  clearTimeout(timeout);
-  let query = this.value;
-  if(query.length < 3){ document.getElementById("searchResults").innerHTML=""; return; }
-  timeout = setTimeout(()=> searchLocation(query), 500);
-});
-
-async function searchLocation(query){
-  let url = "https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&q=" + encodeURIComponent(query);
-  let response = await fetch(url);
-  let data = await response.json();
-  let resultsDiv = document.getElementById("searchResults");
-  resultsDiv.innerHTML="";
-  data.slice(0,5).forEach(place=>{
-    let div=document.createElement("div");
-    div.className="result-item";
-    div.innerText=place.display_name;
-    div.onclick=()=>selectLocation(place);
-    resultsDiv.appendChild(div);
-  });
-}
-
-function selectLocation(place){
-  addPoint(parseFloat(place.lat), parseFloat(place.lon), place.display_name);
-  map.setView([place.lat, place.lon],15);
-  document.getElementById("searchResults").innerHTML="";
-}
-
-/* =============================
-   GEOLOCALIZZAZIONE
-============================= */
-function goToMyLocation(){
-  if(!navigator.geolocation){ alert("Geolocalizzazione non supportata"); return; }
-  navigator.geolocation.getCurrentPosition(position=>{
-    addPoint(position.coords.latitude, position.coords.longitude, "Posizione GPS");
-    map.setView([position.coords.latitude, position.coords.longitude],15);
-  });
-}
-
-/* =============================
-   CLICK SULLA MAPPA
-============================= */
-map.on('click', function(e){
-  addPoint(e.latlng.lat, e.latlng.lng, "Punto selezionato manualmente");
-});
-
-/* =============================
-   AGGIUNTA PUNTO (fino a 20)
-============================= */
-function addPoint(lat, lon, address){
-  if(markers.length >= 20){ alert("Limite massimo 20 punti raggiunto"); return; }
-
-  let draggable = !document.getElementById("lockPoints").checked;
-
-  let marker = L.marker([lat, lon], { draggable: draggable }).addTo(map);
-  marker.bindPopup(address+"<br>Lat: "+lat.toFixed(6)+", Lon: "+lon.toFixed(6)).openPopup();
-
-  if(draggable){
-    marker.on('drag', function(e){
-      let p = e.target.getLatLng();
-      addresses[markers.indexOf(marker)] = "Punto spostato manualmente";
-      marker.bindPopup(addresses[markers.indexOf(marker)]+"<br>Lat: "+p.lat.toFixed(6)+", Lon: "+p.lng.toFixed(6)).openPopup();
-      updateLinesAndCalculate();
-    });
-  }
-
-  markers.push(marker);
-  addresses.push(address);
-
-  updateLinesAndCalculate();
-}
-
-/* =============================
-   LINEE E CALCOLI
-============================= */
-function updateLinesAndCalculate(){
-  multiLines.forEach(l=>map.removeLayer(l));
-  multiLines = [];
-  angleMarkers.forEach(a=>map.removeLayer(a));
-  angleMarkers = [];
-
-  let decl=parseFloat(document.getElementById("decl").value);
-  let resultsHTML="";
-
-  for(let i=0; i<markers.length-1; i++){
-    let lat1=markers[i].getLatLng().lat;
-    let lon1=markers[i].getLatLng().lng;
-    let lat2=markers[i+1].getLatLng().lat;
-    let lon2=markers[i+1].getLatLng().lng;
-
-    let az=calculateAzimuth(lat1,lon1,lat2,lon2);
-    let azMag=(az-decl+360)%360;
-    let dist=haversine(lat1,lon1,lat2,lon2);
-
-    let line=L.polyline([[lat1,lon1],[lat2,lon2]], {color:'red'}).addTo(map);
-    multiLines.push(line);
-
-    let angleMarker=L.marker(markers[i].getLatLng(), {
-      icon:L.divIcon({className:'address-label', html:az.toFixed(1)+'°'})
-    }).addTo(map);
-    angleMarkers.push(angleMarker);
-
-    resultsHTML+="<b>Segmento "+(i+1)+":</b> "+addresses[i]+" → "+addresses[i+1]+"<br>";
-    resultsHTML+="Azimut geografico: "+az.toFixed(2)+"° | Azimut magnetico: "+azMag.toFixed(2)+"° | Distanza: "+dist.toFixed(2)+" m<br><br>";
-  }
-
-  document.getElementById("results").innerHTML = resultsHTML;
-}
-
-/* =============================
-   FUNZIONI AZIMUT / DISTANZA
-============================= */
-function calculateAzimuth(lat1,lon1,lat2,lon2){
-  lat1=toRad(lat1); lon1=toRad(lon1);
-  lat2=toRad(lat2); lon2=toRad(lon2);
-  let dLon=lon2-lon1;
-  let y=Math.sin(dLon)*Math.cos(lat2);
-  let x=Math.cos(lat1)*Math.sin(lat2)-Math.sin(lat1)*Math.cos(lat2)*Math.cos(dLon);
-  let brng=Math.atan2(y,x);
-  brng=toDeg(brng);
-  return (brng+360)%360;
-}
-
-function haversine(lat1,lon1,lat2,lon2){
-  const R=6371000;
-  let dLat=toRad(lat2-lat1);
-  let dLon=toRad(lon2-lon1);
-  lat1=toRad(lat1); lat2=toRad(lat2);
-  let a=Math.sin(dLat/2)**2+Math.sin(dLon/2)**2*Math.cos(lat1)*Math.cos(lat2);
-  let c=2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
-  return R*c;
-}
-
-function toRad(v){ return v*Math.PI/180; }
-function toDeg(v){ return v*180/Math.PI; }
-
-/* =============================
-   RESET & EXPORT
-============================= */
-function resetAll(){
-  markers.forEach(m=>m && map.removeLayer(m));
-  multiLines.forEach(l=>map.removeLayer(l));
-  angleMarkers.forEach(a=>map.removeLayer(a));
-  markers=[]; addresses=[]; multiLines=[]; angleMarkers=[];
-  document.getElementById("results").innerHTML="";
-}
-
-function exportCSV(){
-  if(markers.length < 2) return;
-  let csv="Segmento,Punto1,Punto2,Lat1,Lon1,Lat2,Lon2,Azimut,Azimut_magnetico,Distanza_m\n";
-  let decl=parseFloat(document.getElementById("decl").value);
-  for(let i=0;i<markers.length-1;i++){
-    let lat1=markers[i].getLatLng().lat;
-    let lon1=markers[i].getLatLng().lng;
-    let lat2=markers[i+1].getLatLng().lat;
-    let lon2=markers[i+1].getLatLng().lng;
-    let az=calculateAzimuth(lat1,lon1,lat2,lon2);
-    let azMag=(az-decl+360)%360;
-    let dist=haversine(lat1,lon1,lat2,lon2);
-    csv+=(i+1)+","+addresses[i]+","+addresses[i+1]+","+lat1+","+lon1+","+lat2+","+lon2+","+az+","+azMag+","+dist+"\n";
-  }
-  let blob=new Blob([csv],{type:"text/csv"});
-  let url=URL.createObjectURL(blob);
-  let a=document.createElement("a");
-  a.href=url; a.download="azimut_multi_segment.csv"; a.click();
-}
-
-/* =============================
-   ESPORTA MAPPA IN PDF
-============================= */
-async function exportMapPDF() {
-  const { jsPDF } = window.jspdf;
-
-  // cattura mappa
-  const mapDiv = document.getElementById('map');
-  const canvas = await html2canvas(mapDiv, {useCORS:true});
-  const imgData = canvas.toDataURL('image/png');
-
-  // crea PDF
-  const pdf = new jsPDF({
-    orientation: 'landscape',
-    unit: 'px',
-    format: [canvas.width, canvas.height + 200]
-  });
-
-  pdf.addImage(imgData, 'PNG', 0, 0, canvas.width, canvas.height);
-
-  // aggiungi dati segmenti sotto la mappa
-  let yOffset = canvas.height + 10;
-  let decl=parseFloat(document.getElementById("decl").value);
-  for(let i=0;i<markers.length-1;i++){
-    let lat1=markers[i].getLatLng().lat;
-    let lon1=markers[i].getLatLng().lng;
-    let lat2=markers[i+1].getLatLng().lat;
-    let lon2=markers[i+1].getLatLng().lng;
-    let az=calculateAzimuth(lat1,lon1,lat2,lon2);
-    let azMag=(az-decl+360)%360;
-    let dist=haversine(lat1,lon1,lat2,lon2);
-    pdf.text(10, yOffset, `Segmento ${i+1}: ${addresses[i]} → ${addresses[i+1]} | Azimut: ${az.toFixed(2)}° | Azimut mag: ${azMag.toFixed(2)}° | Distanza: ${dist.toFixed(2)} m`);
-    yOffset += 15;
-  }
-
-  pdf.save('mappa_tracciato.pdf');
-}
-
-/* =============================
-   SERVICE WORKER
-============================= */
-if('serviceWorker' in navigator){ navigator.serviceWorker.register('service-worker.js'); }
-
 </script>
+
 </body>
 </html>
