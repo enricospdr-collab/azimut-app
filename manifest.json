@@ -1,6 +1,6 @@
 {
-  "name": "Azimut Multi-Point Tool",
-  "short_name": "Azimut",
+  "name": "Azimut Multi-Point Tool (CAI Vicenza 2026)",
+  "short_name": "Azimut CAI",
   "start_url": "index.html",
   "display": "standalone",
   "background_color": "#ffffff",

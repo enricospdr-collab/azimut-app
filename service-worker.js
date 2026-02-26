@@ -1,26 +1,38 @@
-const CACHE_NAME = 'azimut-app-v4';
-const urlsToCache = ['index.html'];
+const CACHE_NAME = 'azimut-cai-v6';
+const ASSETS = [
+  './',
+  'index.html',
+  'manifest.json',
+  'service-worker.js',
+  'app.js'
+];
 
+// Install: cache base
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(urlsToCache))
+    caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS))
   );
   self.skipWaiting();
 });
 
+// Activate: pulizia cache vecchie
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((keyList) => {
-      return Promise.all(
-        keyList.map((key) => { if(key !== CACHE_NAME) return caches.delete(key); })
-      );
-    })
+    caches.keys().then((keys) => Promise.all(
+      keys.map((k) => (k !== CACHE_NAME ? caches.delete(k) : Promise.resolve()))
+    ))
   );
   self.clients.claim();
 });
 
+// Fetch: cache-first per gli asset, network per il resto
 self.addEventListener('fetch', (event) => {
+  const req = event.request;
+
+  // Solo GET
+  if (req.method !== 'GET') return;
+
   event.respondWith(
-    caches.match(event.request).then((response) => response || fetch(event.request))
+    caches.match(req).then((cached) => cached || fetch(req))
   );
 });

@@ -17,21 +17,17 @@ input, select, button { padding:4px; margin:2px; }
 .result-item:hover { background:#ddd; }
 .address-label { font-size:12px; background:white; padding:4px; border:1px solid black; }
 
-#elevationInfo {
-  margin-top:6px;
-  font-size:14px;
-}
+#elevationInfo { margin-top:6px; font-size:14px; }
 </style>
 
 <!-- Librerie PDF -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-
 </head>
 <body>
 
 <!-- MODALE DI BENVENUTO -->
-<div id="welcomeModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; 
+<div id="welcomeModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%;
 background: rgba(0,0,0,0.5); z-index:1000; justify-content:center; align-items:center;">
   <div style="background:white; padding:20px; border-radius:8px; max-width:500px; width:90%; position:relative;">
     <span id="closeModal" style="position:absolute; top:10px; right:15px; cursor:pointer; font-weight:bold; font-size:18px;">&times;</span>
@@ -45,44 +41,42 @@ background: rgba(0,0,0,0.5); z-index:1000; justify-content:center; align-items:c
 <div id="map"></div>
 
 <div id="panel">
+  <h3>Ricerca località</h3>
+  <input type="text" id="searchInput" placeholder="Es. Vicenza, Via Roma 10 Milano">
+  <button onclick="goToMyLocation()">Vai alla mia posizione</button>
+  <div id="searchResults"></div>
 
-<h3>Ricerca località</h3>
-<input type="text" id="searchInput" placeholder="Es. Vicenza, Via Roma 10 Milano">
-<button onclick="goToMyLocation()">Vai alla mia posizione</button>
-<div id="searchResults"></div>
+  <hr>
 
-<hr>
+  <input type="checkbox" id="lockPoints"> Blocca marker
 
-<input type="checkbox" id="lockPoints"> Blocca marker
+  Declinazione magnetica (°):
+  <input type="number" id="decl" value="0" step="0.1">
 
-Declinazione magnetica (°):
-<input type="number" id="decl" value="0" step="0.1">
+  <br><br>
+  <button onclick="resetAll()">Reset completo</button>
+  <button onclick="exportCSV()">Esporta CSV</button>
+  <button onclick="exportMapPDF()">Esporta mappa in PDF</button>
 
-<br><br>
-<button onclick="resetAll()">Reset completo</button>
-<button onclick="exportCSV()">Esporta CSV</button>
-<button onclick="exportMapPDF()">Esporta mappa in PDF</button>
+  <div id="results"></div>
 
-<div id="results"></div>
-
-<!-- NUOVA SEZIONE DATI ALTIMETRICI -->
-<div id="elevationInfo">
-  Dislivello positivo: <span id="gain">0</span> m |
-  Dislivello negativo: <span id="loss">0</span> m |
-  Quota minima: <span id="minAlt">0</span> m |
-  Quota massima: <span id="maxAlt">0</span> m
-  <span id="badge-pendenza" style="margin-left:8px;"></span>
-</div>
-
+  <!-- DATI ALTIMETRICI -->
+  <div id="elevationInfo">
+    Dislivello positivo: <span id="gain">0</span> m |
+    Dislivello negativo: <span id="loss">0</span> m |
+    Quota minima: <span id="minAlt">0</span> m |
+    Quota massima: <span id="maxAlt">0</span> m
+    <span id="badge-pendenza" style="margin-left:8px;"></span>
+  </div>
 </div>
 
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
-<!-- TUO SCRIPT PRINCIPALE -->
+<!-- Logica app -->
 <script src="app.js"></script>
 
 <script>
-/* solo gestione modale */
+/* gestione modale */
 window.addEventListener('load', function() {
   const modal = document.getElementById('welcomeModal');
   const closeBtn = document.getElementById('closeModal');
