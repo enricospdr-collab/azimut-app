@@ -4,6 +4,7 @@
    - Overlay Hillshade (ombre versanti) ATTIVO
    - Overlay Slope (pendenze) ATTIVO
    - Mappa limitata rigidamente a Veneto + Trentino-Alto Adige
+   - Pendenza (gradi) accanto a Distanza per ogni segmento + badge ≥30°
 ========================================================= */
 
 // ----------------- BOUNDS (Veneto + Trentino-AA) -----------------
@@ -31,14 +32,9 @@ const hillshade = L.tileLayer("https://tiles.wmflabs.org/hillshading/{z}/{x}/{y}
 });
 
 // Slope overlay (pendenze)
-// Nota: alcuni overlay sono regionali; questo è un endpoint comunemente usato per Alps East.
-// Se in futuro noti tile mancanti, lo sostituiamo con un overlay più adatto al tuo perimetro.
 const slopeOverlay = L.tileLayer(
   "https://tileserver1.openslopemap.org/OSloOVERLAY_UHR_AlpsEast_16/{z}/{x}/{y}.png",
-  {
-    attribution: "Slope overlay",
-    opacity: 0.65
-  }
+  { attribution: "Slope overlay", opacity: 0.65 }
 );
 
 // ----------------- MAPPA (overlay già attivi) -----------------
@@ -59,14 +55,8 @@ map.on("drag", () => {
 
 // selettore layer
 L.control.layers(
-  {
-    "Topografica": topo,
-    "OSM": osm
-  },
-  {
-    "Ombreggiatura (Hillshade)": hillshade,
-    "Pendenze (Slope)": slopeOverlay
-  },
+  { "Topografica": topo, "OSM": osm },
+  { "Ombreggiatura (Hillshade)": hillshade, "Pendenze (Slope)": slopeOverlay },
   { collapsed: true }
 ).addTo(map);
 
@@ -79,6 +69,9 @@ let steepLines = [];       // evidenziazione pendenza > 30° (segmenti campionat
 
 let elevationUpdateTimer = null;
 let lastElevationSignature = "";
+
+// quota stimata per ogni marker (stesso indice di markers)
+let pointElevations = [];
 
 // ----------------- AUTOCOMPLETE NOMINATIM -----------------
 let timeout = null;
@@ -181,7 +174,6 @@ function addPoint(lat, lon, address) {
     marker.on("dragend", function () {
       const pt = marker.getLatLng();
       if (!REGIONAL_BOUNDS.contains(pt)) {
-        // riporta dentro bounds
         marker.setLatLng(REGIONAL_BOUNDS.getCenter());
       }
       scheduleUpdateAll(true);
@@ -233,6 +225,7 @@ function setElevationInfoEmpty(message = "") {
   const badge = document.getElementById("badge-pendenza");
   badge.textContent = message || "";
   badge.style.color = message ? "red" : "";
+  pointElevations = [];
 }
 
 // ----------------- AGGIORNA LINEE + RISULTATI -----------------
@@ -263,8 +256,21 @@ function updateLinesAndAzimuth() {
     }).addTo(map);
     angleMarkers.push(angleMarker);
 
+    // ---- PENDENZA (gradi) + badge inline se ≥30° ----
+    let slopeStr = "—";
+    let slopeBadge = "";
+
+    if (pointElevations[i] != null && pointElevations[i + 1] != null && dist > 0) {
+      const dh = pointElevations[i + 1] - pointElevations[i]; // metri
+      const slopeDeg = Math.atan(dh / dist) * (180 / Math.PI);
+      const slopeAbs = Math.abs(slopeDeg);
+
+      slopeStr = `${slopeAbs.toFixed(1)}°`;
+      if (slopeAbs >= 30) slopeBadge = ` <span style="color:red;">⚠️ ≥30°</span>`;
+    }
+
     resultsHTML += `<b>Segmento ${i + 1}:</b> ${addresses[i]} → ${addresses[i + 1]}<br>`;
-    resultsHTML += `Azimut geografico: ${az.toFixed(2)}° | Azimut magnetico: ${azMag.toFixed(2)}° | Distanza: ${dist.toFixed(2)} m<br><br>`;
+    resultsHTML += `Azimut geografico: ${az.toFixed(2)}° | Azimut magnetico: ${azMag.toFixed(2)}° | Distanza: ${dist.toFixed(2)} m | Pendenza: ${slopeStr}${slopeBadge}<br><br>`;
   }
 
   document.getElementById("results").innerHTML = resultsHTML;
@@ -288,7 +294,7 @@ window.exportCSV = function exportCSV() {
   if (markers.length < 2) return;
 
   const decl = parseFloat(document.getElementById("decl").value || "0");
-  let csv = "Segmento,Punto1,Punto2,Lat1,Lon1,Lat2,Lon2,Azimut,Azimut_magnetico,Distanza_m\n";
+  let csv = "Segmento,Punto1,Punto2,Lat1,Lon1,Lat2,Lon2,Azimut,Azimut_magnetico,Distanza_m,Pendenza_gradi\n";
 
   for (let i = 0; i < markers.length - 1; i++) {
     const a = markers[i].getLatLng();
@@ -297,7 +303,14 @@ window.exportCSV = function exportCSV() {
     const azMag = (az - decl + 360) % 360;
     const dist = map.distance(a, b);
 
-    csv += `${i + 1},"${addresses[i].replace(/"/g, '""')}","${addresses[i + 1].replace(/"/g, '""')}",${a.lat},${a.lng},${b.lat},${b.lng},${az},${azMag},${dist}\n`;
+    let slopeVal = "";
+    if (pointElevations[i] != null && pointElevations[i + 1] != null && dist > 0) {
+      const dh = pointElevations[i + 1] - pointElevations[i];
+      const slopeAbs = Math.abs(Math.atan(dh / dist) * (180 / Math.PI));
+      slopeVal = slopeAbs.toFixed(1);
+    }
+
+    csv += `${i + 1},"${addresses[i].replace(/"/g, '""')}","${addresses[i + 1].replace(/"/g, '""')}",${a.lat},${a.lng},${b.lat},${b.lng},${az},${azMag},${dist},${slopeVal}\n`;
   }
 
   const blob = new Blob([csv], { type: "text/csv" });
@@ -315,7 +328,7 @@ window.exportMapPDF = async function exportMapPDF() {
     const canvas = await html2canvas(mapDiv, { useCORS: true });
     const imgData = canvas.toDataURL("image/png");
 
-    const extraH = 220;
+    const extraH = 240;
     const pdf = new jsPDF({
       orientation: "landscape",
       unit: "px",
@@ -335,7 +348,14 @@ window.exportMapPDF = async function exportMapPDF() {
       const azMag = (az - decl + 360) % 360;
       const dist = map.distance(a, b);
 
-      const line = `Seg ${i + 1}: ${addresses[i]} → ${addresses[i + 1]} | Az: ${az.toFixed(2)}° | AzMag: ${azMag.toFixed(2)}° | Dist: ${dist.toFixed(0)} m`;
+      let slopeTxt = "—";
+      if (pointElevations[i] != null && pointElevations[i + 1] != null && dist > 0) {
+        const dh = pointElevations[i + 1] - pointElevations[i];
+        const slopeAbs = Math.abs(Math.atan(dh / dist) * (180 / Math.PI));
+        slopeTxt = `${slopeAbs.toFixed(1)}°`;
+      }
+
+      const line = `Seg ${i + 1}: Az ${az.toFixed(1)}° | Dist ${dist.toFixed(0)} m | Pend ${slopeTxt} | ${addresses[i]} → ${addresses[i + 1]}`;
       pdf.text(10, y, line);
       y += 14;
       if (y > canvas.height + extraH - 10) break;
@@ -364,7 +384,6 @@ function getPointsLatLng() {
   return markers.map(m => m.getLatLng());
 }
 
-// campionamento: max ~60 punti per API
 function samplePoints(points) {
   if (points.length <= 60) return points;
   const step = Math.ceil(points.length / 60);
@@ -412,13 +431,28 @@ async function updateElevationStats() {
   try {
     const elevations = await fetchElevationsOpenElevation(sampled);
 
+    // --- cache quote per marker: quota del campione più vicino ---
+    pointElevations = new Array(markers.length).fill(null);
+    for (let i = 0; i < markers.length; i++) {
+      const p = markers[i].getLatLng();
+      let bestIdx = 0;
+      let bestDist = Infinity;
+      for (let j = 0; j < sampled.length; j++) {
+        const dd = map.distance(p, sampled[j]);
+        if (dd < bestDist) {
+          bestDist = dd;
+          bestIdx = j;
+        }
+      }
+      pointElevations[i] = elevations[bestIdx];
+    }
+
     let minAlt = Math.min(...elevations);
     let maxAlt = Math.max(...elevations);
     let gain = 0;
     let loss = 0;
     let maxSlope = 0;
 
-    // pulisci evidenziazione ripida
     steepLines.forEach(s => map.removeLayer(s));
     steepLines = [];
 
@@ -447,7 +481,6 @@ async function updateElevationStats() {
     minEl.textContent = String(Math.round(minAlt));
     maxEl.textContent = String(Math.round(maxAlt));
 
-    // colori inline senza cambiare UI
     gainEl.style.color = "green";
     lossEl.style.color = "red";
 
@@ -459,9 +492,13 @@ async function updateElevationStats() {
       badgeEl.style.color = "red";
     }
 
+    // IMPORTANTISSIMO: ristampa righe segmento con pendenza (ora che abbiamo quote)
+    updateLinesAndAzimuth();
+
   } catch (e) {
     console.error("Altimetria errore:", e);
     setElevationInfoEmpty("Altimetria non disponibile");
+    updateLinesAndAzimuth();
   }
 }
 
