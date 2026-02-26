@@ -1,4 +1,4 @@
-const CACHE_NAME = 'azimut-cai-v6';
+const CACHE_NAME = 'azimut-cai-v7';
 const ASSETS = [
   './',
   'index.html',
@@ -7,7 +7,6 @@ const ASSETS = [
   'app.js'
 ];
 
-// Install: cache base
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS))
@@ -15,7 +14,6 @@ self.addEventListener('install', (event) => {
   self.skipWaiting();
 });
 
-// Activate: pulizia cache vecchie
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) => Promise.all(
@@ -25,11 +23,8 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-// Fetch: cache-first per gli asset, network per il resto
 self.addEventListener('fetch', (event) => {
   const req = event.request;
-
-  // Solo GET
   if (req.method !== 'GET') return;
 
   event.respondWith(
